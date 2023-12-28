@@ -1,0 +1,1273 @@
+---
+title: "Plots Litio Social"
+author: "Javier Santibañez Ferreira"
+date: "-"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    collapsed: true
+    smooth_scroll: true
+    theme: journal
+    highlight: kate
+    df_print: paged
+    code_folding: show
+    css: styles.css
+    code_holding: hide
+---
+```{r setup, include=FALSE, cache = TRUE}
+require("knitr")
+opts_chunk$set(warning=FALSE,
+             message=FALSE,
+             echo=TRUE,
+             cache = TRUE, fig.width=7, fig.height=5.2)
+
+```
+
+```{r carga de paquetes}
+rm(list=ls())       # borrar todos los objetos en el espacio de trabajo
+options(scipen=999) # valores sin notaci??n cient??fica
+
+pacman::p_load(car, cowplot, dplyr, ggraph, ggplot2, glue, hms, igraph, kableExtra, 
+               lubridate, magrittr, ngram, networkD3, pdftools, forcats, treemap,
+               plotly, purrr, readxl, rvest, sessioninfo, sjlabelled, sjmisc, sjPlot,
+               stargazer, stopwords, stringr, summarytools, text2vec, tibble, tidytext, 
+               tidyverse, tm, tokenizers, widyr, writexl, V8, wordcloud, RColorBrewer,
+               bibliometrix, rnaturalearth, rnaturalearthdata, forcats, scales, SnowballC,
+               FactoMineR)
+```
+
+
+```{r carga de bases, include=FALSE}
+#----si----
+procdata_5 <- read.csv("00_raw_data/scopus_17.11_T+A+KW.csv", sep = ",")
+procdata_5 <- select(procdata_5,
+                   Authors,
+                   Title,
+                   Year,
+                   "Source_Title" = Source.title,
+                   "Cited_by" = Cited.by,
+                   DOI,
+                   Affiliations,
+                   Abstract,
+                   "Funding" = Funding.Details,
+                   "Autor_KW" = Author.Keywords,
+                   Publisher,
+                   ISSN
+                   )
+
+#write.csv(procdata_4, "wos_30.10_T+A+KW.csv")
+areas_scopus <- read_xlsx("01_tidy_data/areas_scopus.xlsx")
+macroareas <- read_xlsx("01_tidy_data/Macroareas.xlsx")
+country_affiliation <- read_xlsx("01_tidy_data/cleaned_affiliations.xlsx")
+colnames(areas_scopus)[1] <- "Source_Title"
+```
+
+```{r limpieza, include=FALSE}
+#LIMPIEZA
+#----funciones----
+
+limpiar <- function(texto){
+  # El orden de la limpieza no es arbitrario
+  # Se convierte todo el texto a min??sculas
+  nuevo_texto <- tolower(texto)
+  # Eliminaci??n de p??ginas web (palabras que empiezan por "http." seguidas 
+  # de cualquier cosa que no sea un espacio)
+  nuevo_texto <- str_replace_all(nuevo_texto,"http\\S*", "")
+  nuevo_texto <- str_replace_all(nuevo_texto,"#\\S*", "")
+  nuevo_texto <- str_replace_all(nuevo_texto,"@\\S*", "")
+  
+  
+  
+  # Eliminaci??n de signos de puntuaci??n
+  nuevo_texto <- str_replace_all(nuevo_texto,"[[:punct:]]", " ")
+  # Eliminaci??n de n??meros
+  nuevo_texto <- str_replace_all(nuevo_texto,"[[:digit:]]", " ")
+  #   Eliminaci??n de espacios en blanco m??ltiples
+  nuevo_texto <- str_replace_all(nuevo_texto,"[\\s]+", " ")
+  # Eliminaci??n de tokens con una longitud < 2
+  #  nuevo_texto <- keep(.x = nuevo_texto, .p = function(x){str_length(x) > 2})
+  #  return(nuevo_texto)
+}
+rm_words <- function(string, words) {
+  stopifnot(is.character(string), is.character(words))
+  spltted <- strsplit(string, " ", fixed = TRUE) # fixed = TRUE for speedup
+  vapply(spltted, function(x) paste(x[!tolower(x) %in% words], collapse = " "), character(1))
+}
+
+#----stopwords----
+
+stopword_final <- read_excel("00_raw_data/stopwords_en.xlsx")
+
+colnames(stopword_final)<-"word"
+
+stopword <- as_tibble(stopwords::stopwords("en")) 
+stopword <- rename(stopword, word=value)
+stopword<-rbind(stopword,stopword_final)
+mystopwords <- data.frame(word = c())
+stopwords.df<-rbind(stopword,mystopwords)
+
+#----limpieza----
+
+#procdata_1$clean_abs = limpiar(procdata_1$Abstract)
+#procdata_1$clean_abs = rm_words(procdata_1$clean_abs, stopwords.df$word)
+#procdata_1$clean_title = limpiar(procdata_1$Title)
+#procdata_1$clean_title = rm_words(procdata_1$clean_title, stopwords.df$word)
+#procdata_1$clean_kw = limpiar(procdata_1$Author.Keywords)
+#procdata_1$clean_kw = rm_words(procdata_1$clean_kw, stopwords.df$word)
+
+#procdata_2$clean_abs = limpiar(procdata_2$Abstract)
+#procdata_2$clean_abs = rm_words(procdata_2$clean_abs, stopwords.df$word)
+#procdata_2$clean_title = limpiar(procdata_2$Title)
+#procdata_2$clean_title = rm_words(procdata_2$clean_title, stopwords.df$word)
+
+#procdata_3$clean_abs = limpiar(procdata_3$Abstract)
+#procdata_3$clean_abs = rm_words(procdata_3$clean_abs, stopwords.df$word)
+#procdata_3$clean_title = limpiar(procdata_3$Title)
+#procdata_3$clean_title = rm_words(procdata_3$clean_title, stopwords.df$word)
+#procdata_3$clean_kw = limpiar(procdata_3$Autor_KW)
+#procdata_3$clean_kw = rm_words(procdata_3$clean_kw, stopwords.df$word)
+
+procdata_5$clean_abs = limpiar(procdata_5$Abstract)
+procdata_5$clean_abs = rm_words(procdata_5$clean_abs, stopwords.df$word)
+procdata_5$clean_title = limpiar(procdata_5$Title)
+procdata_5$clean_title = rm_words(procdata_5$clean_title, stopwords.df$word)
+procdata_5$clean_kw = limpiar(procdata_5$Autor_KW)
+procdata_5$clean_kw = rm_words(procdata_5$clean_kw, stopwords.df$word)
+
+```
+
+```{r proc5, warning=FALSE, include=FALSE}
+procdata_5.2 <- procdata_5
+procdata_5.2$Estado <- NA
+
+# Definir los grupos de palabras clave en minúsculas y sin '*'
+grupo1 <- c("lithium", "li-ion", "lithium-ion", "battery")
+grupo2 <- c("production", "manufacturing", "fabrication")
+grupo3 <- c("human health", "human", "social life", "social", "adoption", "tension", "human rights", "environmental policy", "governance", "climate policy", "regulation", "politic", "territory", "dispute", "socio-economic", "socioeconomic", "climate", "pollution", "renewable", "sustainability", "environmental", "e mobility", "mobility", "vehicle")
+
+for (i in seq(nrow(procdata_5.2))) {
+  estado1_ <- vector()
+  estado2_ <- vector()
+  estado3_ <- vector()
+  
+  for (u in grupo3) {
+    estado1 <- str_detect(procdata_5[i,13], u)
+    estado1_ <- c(estado1_, estado1)
+    
+    estado2 <- str_detect(procdata_5[i,14], u)
+    estado2_ <- c(estado2_, estado2)
+    
+    estado3 <- str_detect(procdata_5[i,15], u)
+    estado3_ <- c(estado3_, estado3)
+  }
+  
+  estado_ <- c(estado1_, estado2_, estado3_)
+  
+  if (any(estado_)) {
+    procdata_5.2[i,16] <- "Sí"
+  } else {
+    procdata_5.2[i,16] <- "No"
+  }
+}
+
+procdata_5.2 <- procdata_5.2 %>%
+  filter(Estado == "Sí")
+#procdata_5.2018 <- procdata_5 %>% filter(Year == "2023"| Year == "2022" |Year == "2021" |Year == "2020"| Year == "2019" |Year == "2018")
+
+procdata_5.2 <- merge(procdata_5.2, areas_scopus, by = "Source_Title", all.x = TRUE)
+procdata_5.2 <- procdata_5.2[!is.na(procdata_5.2$Area), ]
+procdata_5.2$ID <- NA
+
+for (i in seq(nrow(procdata_5.2))) {
+  procdata_5.2[i,18] <- i
+}
+
+#
+
+procdata_5.2 <- merge(procdata_5.2, country_affiliation, all.x = TRUE, by = "Affiliations")
+# Usar strsplit() para dividir la columna "Area" en una lista de vectores
+split_areas <- strsplit(procdata_5.2$Area, split = ";")
+
+# Crear una lista de dataframes, replicando las filas por la cantidad de áreas
+split_data <- lapply(seq_along(split_areas), function(i) {
+  data.frame(procdata_5.2[i, ], Area = split_areas[[i]], stringsAsFactors = FALSE)
+})
+procdata_5.4 <- data.frame()
+# Combinar los dataframes de la lista en un único dataframe
+procdata_5.4 <- do.call(rbind, split_data)
+# Limpiar el índice de filas si es necesario
+rownames(procdata_5.4) <- NULL
+procdata_5.4 <- merge(procdata_5.4, macroareas, all.x = TRUE, by = "Area.1")
+
+procdata_5.4 <- procdata_5.4 %>%
+  group_by(ID, Macro_areas) %>%
+  distinct()
+
+
+#----World df----
+country_counts <- procdata_5.4 %>% 
+  count(Country_affiliation) %>% 
+  rename(geounit = Country_affiliation)
+
+# Obtener el mapa del mundo
+world <- ne_countries(scale = "medium", returnclass = "sf")
+
+# Unir los datos con el mapa
+world_data <- world %>% 
+  left_join(country_counts, by = "geounit")
+
+worldeco <- select(world, geounit, economy)
+colnames(country_affiliation)[2] <- "geounit"
+country_affiliation2 <- merge(country_counts, worldeco, all.x = TRUE, by = "geounit")
+country_affiliation2 <- select(country_affiliation2, "Country_affiliation" = geounit,
+                              economy)
+
+procdata_5.4 <- merge(procdata_5.4, country_affiliation2, all.x = TRUE, by = "Country_affiliation")
+
+proc_authors <- select(procdata_5.4, ID, Authors, Affiliations, Cited_by)
+proc_authors <- unique(proc_authors)
+proc_authors$Authors <- str_replace_all(proc_authors$Authors, ";", ",")
+proc_authors$Authors <- str_replace_all(proc_authors$Authors, ",", ";")
+proc_authors$Authors <- sub("\\.|;.*", "", proc_authors$Authors)
+proc_authors$Affiliations <- str_replace_all(proc_authors$Affiliations, ";", ",")
+proc_authors$Affiliations <- str_replace_all(proc_authors$Affiliations, ",", ";")
+proc_authors$Affiliations <- sub("\\.|;.*", "", proc_authors$Affiliations)
+
+
+proc_affi <- proc_authors %>%
+  group_by(Affiliations) %>%
+  summarise(
+    Total_Cited_by = sum(Cited_by, na.rm = TRUE),
+    Count = n()
+  )
+
+affi_ord <- proc_affi[order(proc_affi$Count, decreasing = TRUE), ]
+affi_ord <- affi_ord[2:11,]
+
+proc_authors <- proc_authors %>%
+  group_by(Authors) %>%
+  summarise(
+    Total_Cited_by = sum(Cited_by, na.rm = TRUE),
+    Count = n()
+  )
+
+author_ord <- proc_authors[order(proc_authors$Count, decreasing = TRUE), ]
+author_ord <- author_ord[2:11,]
+```
+
+# DESCRIPCION POR AREA DE TRABAJO
+
+```{r plots 1, echo=FALSE, warning=FALSE}
+#----plots areas especificas----
+area_counts <- table(procdata_5.4$Area.1)
+area_df <- as.data.frame(area_counts)
+names(area_df) <- c("Area", "Count")
+# Crear el gráfico de torta
+KUCHEN <- ggplot(area_df, aes(x = "", y = Count, fill = Area)) +
+  geom_bar(width = 5, stat = "identity") + 
+  coord_polar(theta = "y") + # Coordenadas polares para el gráfico de torta
+  theme_void() +  # Tema vacío, útil para gráficos de torta
+  labs(fill = "Area", title = "Distribución de la variable Area.1") + # Etiquetas
+  theme(legend.position = "right") # Ajusta la posición de la leyenda
+
+# Usar fct_infreq para ordenar los factores por frecuencia decreciente
+procdata_5.4$Area.1 <- fct_infreq(procdata_5.4$Area.1)
+
+# Crear el gráfico de barras con las áreas ordenadas
+A <- ggplot(procdata_5.4, aes(x = Area.1)) +
+  geom_bar() + 
+  theme_minimal() +
+  labs(x = "Area", y = "Count", title = "Distribución por Area de trabajo") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  expand_limits(y = 0) + coord_cartesian(ylim = c(0, 1900))+theme(plot.background = element_rect(fill = "white", colour = "white"))
+
+# Filtrar solo las filas de 'Social Science'
+social_science_data <- procdata_5.4 %>% 
+  filter(Area.1 == "Social Sciences")
+annual_trend <- social_science_data %>%
+  group_by(Year) %>%
+  summarise(Count = n())
+
+# Crear el gráfico de tendencias
+B<- ggplot(annual_trend, aes(x = Year, y = Count)) +
+  geom_line() + # Línea para la tendencia
+  geom_point() + # Puntos para cada dato anual
+  geom_text(aes(label = Count), vjust = -2, hjust = 0.5, check_overlap = TRUE) + # Etiquetas en cada punto
+  theme_minimal() +
+  labs(x = "Year", y = "Frequency", title = "Tendencias de área Ciencias Sociales") +
+  expand_limits(y = 0) +
+  coord_cartesian(ylim = c(0, 30))+theme(plot.background = element_rect(fill = "white", colour = "white"))
+
+# Sumarizar el total de citas por área
+citations_by_area <- procdata_5.4 %>%
+  group_by(Area.1) %>%
+  summarise(TotalCitedBy = sum(Cited_by, na.rm = TRUE)) %>%
+  arrange(TotalCitedBy) # Ordenamos el dataframe por TotalCitedBy de forma descendente
+
+# Crear el gráfico de barras ordenado de mayor a menor
+C <- ggplot(citations_by_area, aes(x = reorder(Area.1, -TotalCitedBy), y = TotalCitedBy)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(x = "Area", y = "Total Number of Citations", title = "Total Citations by Area (Desc)") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+theme(plot.background = element_rect(fill = "white", colour = "white")) # Para rotar las etiquetas y evitar la superposición de texto
+
+#Filtrar para el área de 'Social Sciences' y sumarizar por año
+social_sciences_trends <- procdata_5.4 %>%
+  filter(Area.1 == "Social Sciences") %>%
+  group_by(Year) %>%
+  summarise(TotalCitedBy = sum(Cited_by, na.rm = TRUE))
+
+D <- ggplot(social_sciences_trends, aes(x = Year, y = TotalCitedBy)) +
+  geom_line() + # La línea que une los puntos
+  geom_point() + # Los puntos en cada vértice
+  geom_text(aes(label = TotalCitedBy), vjust = -2, hjust = 0.5) + # Las etiquetas mostrando el total de citas
+  theme_minimal() +
+  labs(x = "Year", y = "Total Number of Citations", title = "Citas en Ciencias Sociales en el tiempo") +
+  ylim(0, 1600)+theme(plot.background = element_rect(fill = "white", colour = "white")) # Establecer los límites del eje Y de 0 a 1600
+KUCHEN
+A
+B
+C
+D
+#ggsave("hist_area.png", plot = A, width = 10, height = 8, dpi = 800)
+#ggsave("tendencia_CCSS.png", plot = B, width = 10, height = 8, dpi = 800)
+#ggsave("citasxarea.png", plot = C, width = 10, height = 8, dpi = 800)
+#ggsave("tendenciacitasCCSS.png", plot = D, width = 10, height = 8, dpi = 800)
+```
+
+# DISTRIBUCION POR MACRO-AREA
+
+```{r plots 2, warning=FALSE}
+#----plots macro areas----
+area_counts <- table(procdata_5.4$Macro_areas)
+area_df <- as.data.frame(area_counts)
+names(area_df) <- c("Area", "Count")
+# Crear el gráfico de torta
+A_1 <- ggplot(area_df, aes(x = "", y = Count, fill = Area)) +
+  geom_bar(width = 5, stat = "identity") + 
+  coord_polar(theta = "y") + # Coordenadas polares para el gráfico de torta
+  theme_void() +  # Tema vacío, útil para gráficos de torta
+  labs(fill = "Area", title = "Distribución de la variable Macroarea") + # Etiquetas
+  theme(legend.position = "right") # Ajusta la posición de la leyenda
+
+# Usar fct_infreq para ordenar los factores por frecuencia decreciente
+procdata_5.4$Macro_areas <- fct_infreq(procdata_5.4$Macro_areas)
+
+# Crear el gráfico de barras con las áreas ordenadas
+A_2 <- ggplot(procdata_5.4, aes(x = Macro_areas)) +
+  geom_bar() + 
+  theme_minimal() +
+  labs(x = "Area", y = "Count", title = "Distribución por Area de trabajo") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  expand_limits(y = 0) + coord_cartesian(ylim = c(0, 5000))+theme(plot.background = element_rect(fill = "white", colour = "white"))
+
+A_2 <- ggplot(procdata_5.4, aes(x = Macro_areas)) +
+  geom_bar() + 
+  geom_text(stat = 'count', aes(label = after_stat(count)), vjust = -0.5, color = "black") + # Añade etiquetas con el conteo
+  theme_minimal() +
+  labs(x = "Area", y = "Count", title = "Distribución por Macroarea") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  expand_limits(y = 0) +
+  coord_cartesian(ylim = c(0, 5000)) +
+  theme(plot.background = element_rect(fill = "white", colour = "white"))
+
+# Filtrar solo las filas de 'Social Science'
+annual_trend <- procdata_5.4 %>%
+  group_by(Year) %>%
+  summarise(Count = n())
+
+# Crear el gráfico de tendencias
+B <- ggplot(annual_trend, aes(x = Year, y = Count)) +
+  geom_line() + # Línea para la tendencia
+  geom_point() + # Puntos para cada dato anual
+  geom_text(aes(label = Count), vjust = -2, hjust = 0.5, check_overlap = TRUE) + # Etiquetas en cada punto
+  theme_minimal() +
+  labs(x = "Year", y = "Frequency", title = "Tendencias de publicaciones en el tiempo") +
+  expand_limits(y = 0) +
+  coord_cartesian(ylim = c(0, 1700))+theme(plot.background = element_rect(fill = "white", colour = "white"))
+
+# Sumarizar el total de citas por área
+citations_by_area <- procdata_5.4 %>%
+  group_by(Macro_areas) %>%
+  summarise(TotalCitedBy = sum(Cited_by, na.rm = TRUE)) %>%
+  arrange(TotalCitedBy) # Ordenamos el dataframe por TotalCitedBy de forma descendente
+
+
+C_1 <- ggplot(citations_by_area, aes(x = "", y = TotalCitedBy, fill = Macro_areas)) +
+  geom_bar(width = 5, stat = "identity") + 
+  coord_polar(theta = "y") + # Coordenadas polares para el gráfico de torta
+  theme_void() +  # Tema vacío, útil para gráficos de torta
+  labs(fill = "Area", title = "Distribución de la variable Macroarea") + # Etiquetas
+  theme(legend.position = "right") # Ajusta la posición de la leyenda
+# Crear el gráfico de barras ordenado de mayor a menor
+
+C_2 <- ggplot(citations_by_area, aes(x = reorder(Macro_areas, -TotalCitedBy), y = TotalCitedBy)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = TotalCitedBy), vjust = -0.3, color = "black") + # Añade las etiquetas con el número de citas
+  theme_minimal() +
+  labs(x = "Area", y = "Total Number of Citations", title = "Total de citas por Macroarea") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(plot.background = element_rect(fill = "white", colour = "white"))+  ylim(0, 300000) # Para rotar las etiquetas y evitar la superposición de texto
+
+
+#Filtrar para el área de 'Social Sciences' y sumarizar por año
+social_sciences_trends <- procdata_5.4 %>%
+  filter(Area.1 == "Social Sciences") %>%
+  group_by(Year) %>%
+  summarise(TotalCitedBy = sum(Cited_by, na.rm = TRUE))
+
+D <- ggplot(social_sciences_trends, aes(x = Year, y = TotalCitedBy)) +
+  geom_line() + # La línea que une los puntos
+  geom_point() + # Los puntos en cada vértice
+  geom_text(aes(label = TotalCitedBy), vjust = -2, hjust = 0.5) + # Las etiquetas mostrando el total de citas
+  theme_minimal() +
+  labs(x = "Year", y = "Total Number of Citations", title = "Citas en Ciencias Sociales en el tiempo") +
+  ylim(0, 1600)+theme(plot.background = element_rect(fill = "white", colour = "white")) # Establecer los límites del eje Y de 0 a 1600
+
+A_1
+A_2
+B
+C_1
+C_2
+D
+
+
+
+
+#ggsave("hist_area.png", plot = A, width = 10, height = 8, dpi = 800)
+#ggsave("tendencia_CCSS.png", plot = B, width = 10, height = 8, dpi = 800)
+#ggsave("citasxarea.png", plot = C, width = 10, height = 8, dpi = 800)
+#ggsave("tendenciacitasCCSS.png", plot = D, width = 10, height = 8, dpi = 800)
+
+
+```
+
+```{r descriptivos meta-datos}
+#----plots----
+G1_A <- ggplot(data = world_data) +
+  geom_sf(aes(fill = n), color = "black") +  # Bordes negros
+  scale_fill_gradient(low = "white", high = "black", na.value = NA, guide = "colorbar") +  # Escala de color de blanco a negro
+  labs(fill = "Frecuencia") +
+  theme_minimal() +  # Tema minimalista
+  theme(panel.background = element_rect(fill = "white", colour = "white"))  # Fondo blanco
+
+# Agrupar por country_affiliation y Macro_area y contar las publicaciones
+pub_counts <- procdata_5.4 %>% 
+  group_by(economy, Macro_areas) %>% 
+  summarise(count = n())
+pub_counts <- na.omit(pub_counts)
+# Crear el gráfico de barras
+
+G1_B <- ggplot(pub_counts, aes(x = economy, y = count, fill = Macro_areas)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_fill_grey(start = 0.8, end = 0.2) +  # Escala de grises
+  geom_text(aes(label = count), vjust = -0.3, position = position_dodge(width = 0.9)) +  # Añadir el número de publicaciones
+  theme_minimal() +
+  labs(x = "Country Affiliation", y = "Number of Publications", fill = "Macro Area") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  coord_cartesian(ylim = c(0, 2000))
+
+TM1 <- treemap(affi_ord,
+        index = "Affiliations", 
+        vSize = "Count", 
+        title = "",
+        fontsize.title = 20,
+        fontsize.labels = 10)
+TM2 <- treemap(author_ord,
+        index = "Authors", 
+        vSize = "Count", 
+        title = "",
+        fontsize.title = 20,
+        fontsize.labels = 10)
+
+# Primero, calcula el conteo de cada Macro_area por año
+procdata_counts <- procdata_5.4 %>%
+  group_by(Year, Macro_areas) %>%
+  summarise(Count = n(), .groups = 'drop')
+
+procdata_counts <- procdata_counts %>%
+  filter(Year != 2024)
+procdata_counts$periodo <- NA
+
+procdata_counts <- procdata_counts %>%
+  mutate(
+    periodo = case_when(
+      Year <= 1990 ~ "Hasta 1990",
+      Year >= 1991 & Year <= 2000 ~ "1991-2000",
+      Year >= 2001 & Year <= 2010 ~ "2001-2010",
+      Year >= 2011 ~ "2011 en adelante"
+    )
+  )
+procdata_counts <- procdata_counts %>% 
+  mutate(periodo = factor(periodo, levels = c("Hasta 1990", "1991-2000", "2001-2010", "2011 en adelante"))) 
+
+
+# Luego, crea el gráfico de líneas
+G2_A.2 <- ggplot(procdata_counts, aes(x = Year, y = Count, color = Macro_areas)) +
+  geom_line() + # Crea una línea para cada Macro_area
+  theme_minimal() +
+  labs(x = "Year", y = "Count", title = "") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(plot.background = element_rect(fill = "white", colour = "white"))
+
+G2_A.1.1 <- ggplot(procdata_counts, aes(x = Year, y = Count, color = Macro_areas)) +
+  geom_line() +  # Crea una línea para cada Macro_area
+  scale_color_grey(start = 0.8, end = 0.2) +  # Escala de grises para las líneas
+  theme_minimal() +
+  labs(x = "Year", y = "Count", title = "") +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        plot.background = element_rect(fill = "white", colour = "white")) +
+  scale_linetype_manual(values = c("solid", "dashed", "dotted", "dotdash", "longdash", "twodash"))
+
+G2_A.1.2 <- ggplot(procdata_counts, aes(x = Year, y = Count, color = Macro_areas, linetype = Macro_areas)) +
+  geom_line() +
+  scale_color_grey(start = 0.8, end = 0.2) +
+  scale_linetype_manual(values = c("solid", "dashed", "dotted", "dotdash", "longdash", "twodash")) +
+  theme_minimal() +
+  labs(x = "Year", y = "Count", title = "Frecuencia de Macro_areas a lo largo de los Años") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        plot.background = element_rect(fill = "white", colour = "white"))
+
+G2_A.1.3 <- ggplot(procdata_counts, aes(x = Year, y = Count, color = Macro_areas, linetype = Macro_areas)) +
+  geom_line() +
+  scale_color_grey(start = 0.8, end = 0.2) +
+  scale_linetype_manual(values = c("solid", "dashed", "dotted", "dotdash", "longdash", "twodash")) +  # Aquí puedes ajustar los estilos de línea
+  theme_minimal() +
+  labs(x = "Year", y = "Count", title = "Frecuencia de Macro_areas a lo largo de los Años") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        plot.background = element_rect(fill = "white", colour = "white")) +
+  facet_wrap(~ periodo, ncol = 1, scales = "free_x")
+
+G2_A.1 <- ggplot(procdata_counts, aes(x = Year, y = Count, color = Macro_areas)) +
+  geom_line() +  # Crea una línea para cada Macro_area
+  scale_color_grey(start = 0.8, end = 0.2) +  # Escala de grises para las líneas
+  theme_minimal() +
+  labs(x = "Year", y = "Count", title = "") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(plot.background = element_rect(fill = "white", colour = "white"))+
+  facet_wrap(~periodo, ncol = 2, scales = "free_x")
+
+
+# Calcula la suma de citas por Macro_area y año
+procdata_sums <- procdata_5.4 %>%
+  group_by(Year, Macro_areas) %>%
+  summarise(SumCitedBy = sum(Cited_by), .groups = 'drop')
+
+procdata_sums <- procdata_sums %>%
+  filter(Year != 2024)
+
+
+
+
+# Crea el gráfico de líneas
+G2_B.2 <- ggplot(procdata_sums, aes(x = Year, y = SumCitedBy, color = Macro_areas)) +
+  geom_line() + # Crea una línea para cada Macro_area
+  theme_minimal() +
+  labs(x = "Year", y = "Total Citations", title = "") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(plot.background = element_rect(fill = "white", colour = "white"))
+
+G2_B.1 <- ggplot(procdata_sums, aes(x = Year, y = SumCitedBy, color = Macro_areas)) +
+  geom_line() +  # Crea una línea para cada Macro_area
+  scale_color_grey(start = 0.8, end = 0.2) +  # Escala de grises para las líneas
+  theme_minimal() +
+  labs(x = "Year", y = "Total Citations", title = "") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(plot.background = element_rect(fill = "white", colour = "white"))
+
+```
+
+```{r tf/idf desctiptivos corpus}
+abs_words <- procdata_5.4 %>%
+  unnest_tokens(word, clean_abs) %>%
+  count(Macro_areas, word, sort = TRUE)
+
+total_words <- abs_words %>% 
+  group_by(Macro_areas) %>% 
+  summarize(total = sum(n))
+
+abs_words <- left_join(abs_words, total_words)
+
+abs_tf_idf <- abs_words %>%
+  bind_tf_idf(word, Macro_areas, n)
+abs_tf_idf
+
+abs_tf_idf %>%
+  select(-total) %>%
+  arrange(desc(tf_idf))
+
+decision.sci_idf <- abs_tf_idf %>%
+  filter(Macro_areas == "Administration and Decision Sciences")
+eng.tech_idf <- abs_tf_idf %>%
+  filter(Macro_areas == "Engineering and Technology")
+health.sci_idf <- abs_tf_idf %>%
+  filter(Macro_areas == "Health and Medical Sciences")
+multi_idf <- abs_tf_idf %>%
+  filter(Macro_areas == "Multidisciplinary")
+nat.sci_idf <- abs_tf_idf %>%
+  filter(Macro_areas == "Natural and Physical Sciences")
+social.sci_idf <- abs_tf_idf %>%
+  filter(Macro_areas == "Social Sciences and Humanities")
+
+
+G3_T <- ggplot(abs_words, aes(n/total, fill = Macro_areas)) +
+  geom_histogram(show.legend = FALSE) +
+  xlim(NA, 0.0009) +
+  facet_wrap(~Macro_areas, ncol = 2, scales = "free_y")
+
+G3_A <- abs_tf_idf %>%
+  group_by(Macro_areas) %>%
+  slice_max(tf_idf, n = 10) %>%
+  ungroup() %>%
+  ggplot(aes(tf_idf, fct_reorder(word, tf_idf), fill = Macro_areas)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~Macro_areas, ncol = 2, scales = "free") +
+  labs(x = "", y = NULL)
+
+G3_B <- abs_tf_idf %>%
+  group_by(Macro_areas) %>%
+  slice_max(n, n = 10) %>%
+  ungroup() %>%
+  ggplot(aes(n, fct_reorder(word, n), fill = Macro_areas)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~Macro_areas, ncol = 2, scales = "free") +
+  labs(x = "", y = NULL)
+```
+# META DATOS Y FREQ DE PALABRAS
+```{r plots SI, warning=FALSE}
+G1_A
+G1_B
+treemap(affi_ord,
+        index = "Affiliations", 
+        vSize = "Count", 
+        title = "",
+        fontsize.title = 20,
+        fontsize.labels = 10)
+treemap(author_ord,
+        index = "Authors", 
+        vSize = "Count", 
+        title = "",
+        fontsize.title = 20,
+        fontsize.labels = 10)
+G2_A.1
+G2_A.1.1
+G2_A.1.2
+G2_A.1.3
+G2_A.2
+G2_B.1
+G2_B.2
+G3_A
+G3_B
+
+#ggsave("mapa.png", plot = G1_A, width = 10, height = 8, dpi = 800)
+#ggsave("artxregion.png", plot = G1_B, width = 10, height = 8, dpi = 800)
+#ggsave("frec_MA_BN.png", plot = G2_A.1, width = 10, height = 8, dpi = 800)
+#ggsave("frec_MA_C.png", plot = G2_A.2, width = 10, height = 8, dpi = 800)
+#ggsave("citas_MA_BN.png", plot = G2_B.1, width = 10, height = 8, dpi = 800)
+#ggsave("citas_MA_C.png", plot = G2_B.2, width = 10, height = 8, dpi = 800)
+#ggsave("idf.png", plot = G3_A, width = 10, height = 8, dpi = 800)
+#ggsave("tf.png", plot = G3_B, width = 10, height = 8, dpi = 800)
+
+```
+
+```{r eval=FALSE, include=FALSE}
+
+# Preparar los datos para el gráfico
+# Separar las palabras clave y contarlas para cada área
+kw_freq_by_area <- procdata_5.4 %>%
+  separate_rows(Autor_KW, sep = ";") %>%
+  count(Area.1, Autor_KW) %>%
+  filter(Autor_KW != "") %>%  # Asegurarse de no contar filas vacías
+  group_by(Area.1) %>%
+  top_n(10, n) %>%  # Seleccionar las 10 palabras clave principales por área
+  ungroup() %>%
+  mutate(Autor_KW = factor(Autor_KW, levels = unique(Autor_KW)))
+
+# Función para crear un gráfico de barras para cada área
+create_bar_chart <- function(data, area) {
+  filtered_data <- data %>% filter(Area.1 == area)
+  filtered_data <- filtered_data[order(filtered_data$n, decreasing = TRUE), ]
+  filtered_data <- filtered_data[1:15,]
+  
+  # Crear el gráfico de barras
+  p <- ggplot(filtered_data, aes(x = Autor_KW, y = n, fill = Autor_KW)) +
+    geom_bar(stat = "identity") +
+    coord_flip() + # Girar para que las barras sean horizontales
+    labs(title = paste("Palabras clave de autor para el área:", area), x = "Palabras clave", y = "Frecuencia") +
+    theme_minimal() +
+    theme(legend.position = "none") # Eliminar la leyenda ya que el color es redundante
+  
+  print(p) # Imprimir el gráfico
+}
+
+# Aplicar la función a cada área
+areas <- unique(kw_freq_by_area$Area.1)
+lapply(areas, function(area) create_bar_chart(kw_freq_by_area, area))
+```
+
+```{r funciones, warning=FALSE, include=FALSE}
+#----funciones----
+ScaleWeight <- function(x, lambda) {
+  x / lambda
+}
+f_bi_count <- function(data, INPUT){
+  bi_gram_count <- data %>% 
+    unnest_tokens(input = INPUT, output = "word") %>% 
+    count(word, sort = TRUE)
+  bi_gram_count <- data %>% 
+    unnest_tokens(
+      input = INPUT, 
+      output = bigram, 
+      token = 'ngrams', 
+      n = 2,
+      drop = TRUE
+    ) %>% 
+    separate(col = bigram, into = c('word1', 'word2'), sep = ' ') %>% 
+    filter(!is.na(word1) & !is.na(word2)) %>% 
+    count(word1, word2, sort = TRUE) %>% 
+    rename(weight = n)
+  return(bi_gram_count <- bi_gram_count)
+}
+f_bic_con <- function(data, concepto, ncon){
+  data <- data %>%
+    filter(word1 == concepto | word2 == concepto)
+  data$concepto <- paste(data$word1, data$word2, sep = " ")
+  data$concepto <- str_replace_all(data$concepto, concepto, "")
+  data <- data %>% mutate(concepto = na_if(concepto, " "))
+  data <- na.omit(data)
+  data <- data[1:ncon, 1:ncol(data)]
+  return(data)
+}
+f_tri_count <- function(data, INPUT){
+  tri_words <- data %>% 
+    unnest_tokens(input = INPUT, 
+                  output = trigram, 
+                  token = 'ngrams', 
+                  n = 3) %>% 
+    filter(! is.na(trigram)) 
+  tri_words %<>% 
+    separate(col = trigram, into = c('word1', 'word2', 'word3'), sep = ' ')
+  tri_words <- tri_words %>% count(word1, word2, word3, sort = TRUE)
+  tri_words$word_1 <- paste(tri_words$word1, tri_words$word2, sep = " ")
+  tri_words$word_2 <- paste(tri_words$word2, tri_words$word3, sep = " ")
+  tri_words$word_3 <- paste(tri_words$word1, tri_words$word3, sep = " ")
+  tri_words <- tri_words %>% rename(weight = n)
+  return(tri_words)
+}
+f_tric_con <- function(data, concepto, ncon){
+  data1 <- data %>%
+    filter(word_1 == concepto)
+  data2 <- data %>%
+    filter(word_2 == concepto)
+  data3 <- data %>% 
+    filter(word_3 == concepto)
+  data1 <- select(data1,
+                  "concepto" = word3, 
+                  weight)
+  data2 <- select(data2,
+                  "concepto" = word1, 
+                  weight)
+  data3 <- select(data3,
+                  "concepto" = word2, 
+                  weight)
+  data4 <- data %>% 
+    filter(word1 == concepto | word2 == concepto | word3 == concepto)
+  data4$concepto <- paste(data4$word1, data4$word2, data4$word3, sep = " ")
+  data4$concepto <- str_replace_all(data4$concepto, concepto, "")
+  data4 <- select(data4,
+                  concepto, 
+                  weight)
+  data <- bind_rows(data1, data2, data3, data4) %>%
+    group_by(concepto) %>%
+    summarize(weight = sum(weight))
+  data <- data[order(data$weight, decreasing = TRUE), ]
+  data <- data[1:ncon, 1:ncol(data)]
+  data <- na.omit(data)
+  return(data)
+}
+f_Sbi_count <- function(data, INPUT){
+  skip_words <- base_piloto %>% 
+    unnest_tokens(
+      input = INPUT, 
+      output = skipgram, 
+      token = 'skip_ngrams', 
+      n = 2
+    ) %>% 
+    filter(! is.na(skipgram))
+  skip_words$num_words <- skip_words$skipgram %>% 
+    map_int(.f = ~ ngram::wordcount(.x))
+  skip_words <- skip_words %>% filter(num_words == 2) %>% select(- num_words)
+  skip_words <- skip_words %>% 
+    separate(col = skipgram, into = c('word1', 'word2'), sep = ' ')
+  skip_count <- skip_words  %>% 
+    count(word1, word2, sort = TRUE) %>% 
+    rename(weight = n)
+  return(skip_count)
+}
+f_Stri_count <- function(data, INPUT){
+  skip_words <- data %>% 
+    unnest_tokens(
+      input = INPUT, 
+      output = skipgram, 
+      token = 'skip_ngrams', 
+      n = 3
+    ) %>% 
+    filter(! is.na(skipgram))
+  skip_words$num_words <- skip_words$skipgram %>% 
+    map_int(.f = ~ ngram::wordcount(.x))
+  skip_words <- skip_words %>% filter(num_words == 3) %>% select(- num_words)
+  skip_words <- skip_words %>% 
+    separate(col = skipgram, into = c('word1', 'word2', 'word3'), sep = ' ')
+  skip_count <- skip_words  %>% 
+    count(word1, word2, word3, sort = TRUE) %>% 
+    rename(weight = n)
+  skip_count$word_1 <- paste(skip_count$word1, skip_count$word2, sep = " ")
+  skip_count$word_2 <- paste(skip_count$word2, skip_count$word3, sep = " ")
+  skip_count$word_3 <- paste(skip_count$word1, skip_count$word3, sep = " ")
+  return(skip_count)
+}
+f_Sfour_count <- function(data, INPUT){
+  skip_words <- data %>% 
+    unnest_tokens(
+      input = INPUT, 
+      output = skipgram, 
+      token = 'skip_ngrams', 
+      n = 4
+    ) %>% 
+    filter(! is.na(skipgram))
+  skip_words$num_words <- skip_words$skipgram %>% 
+    map_int(.f = ~ ngram::wordcount(.x))
+  skip_words <- skip_words %>% filter(num_words == 4) %>% select(- num_words)
+  skip_words <- skip_words %>% 
+    separate(col = skipgram, into = c('word1', 'word2', 'word3', 'word4'), sep = ' ')
+  skip_count <- skip_words  %>% 
+    count(word1, word2, word3, word4, sort = TRUE) %>% 
+    rename(weight = n)
+  return(skip_count)
+}
+f_Sfour_con <- function(data, concept_string, n_wanted) {
+  n_search <- as.numeric(str_count(concept_string, " "))
+  n_search <- n_search+1
+  if(n_search == 1){
+    concept <- concept_string
+    skip_count <- data %>% 
+      filter(word1 == concept | word2 == concept | word3 == concept | word4 == concept)
+    skip_count$word1 <- str_remove_all(skip_count$word1, concept)
+    skip_count$word2 <- str_remove_all(skip_count$word2, concept)
+    skip_count$word3 <- str_remove_all(skip_count$word3, concept)
+    skip_count$word4 <- str_remove_all(skip_count$word4, concept)
+    skip_count$concepto <- paste(skip_count$word1, skip_count$word2, skip_count$word3, skip_count$word4, sep = " ")
+    skip_count <- select(skip_count, concepto, weight)
+    skip_count$concepto <- sub("^\\s+", "", skip_count$concepto)
+    skip_count$concepto <- sub("\\s+$", "", skip_count$concepto)
+    skip_count <- aggregate(weight ~ concepto, skip_count, sum)
+    skip_count <- skip_count[order(skip_count$weight, decreasing = TRUE), ]
+  } else if(n_search == 2) {
+    concepts <- strsplit(concept_string, " ")[[1]]
+    concept1 <- concepts[1]
+    concept2 <- concepts[2]
+    skip_count <- data %>% 
+      filter(word1 == concept1 | word2 == concept1 | word3 == concept1 | word4 == concept1)
+    skip_count <- skip_count %>% 
+      filter(word1 == concept2 | word2 == concept2 | word3 == concept2 | word4 == concept2)
+    skip_count$word1 <- str_remove_all(skip_count$word1, concept1)
+    skip_count$word2 <- str_remove_all(skip_count$word2, concept1)
+    skip_count$word3 <- str_remove_all(skip_count$word3, concept1)
+    skip_count$word4 <- str_remove_all(skip_count$word4, concept1)
+    skip_count$word1 <- str_remove_all(skip_count$word1, concept2)
+    skip_count$word2 <- str_remove_all(skip_count$word2, concept2)
+    skip_count$word3 <- str_remove_all(skip_count$word3, concept2)
+    skip_count$word4 <- str_remove_all(skip_count$word4, concept2)
+    skip_count$concepto <- paste(skip_count$word1, skip_count$word2, skip_count$word3, skip_count$word4, sep = " ")
+    skip_count <- select(skip_count, concepto, weight)
+    skip_count$concepto <- sub("^\\s+", "", skip_count$concepto)
+    skip_count$concepto <- sub("\\s+$", "", skip_count$concepto)
+    skip_count <- aggregate(weight ~ concepto, skip_count, sum)
+    skip_count <- skip_count[order(skip_count$weight, decreasing = TRUE), ]
+  } else if(n_search == 3){
+    concepts <- strsplit(concept_string, " ")[[1]]
+    concept1 <- concepts[1]
+    concept2 <- concepts[2]
+    concept3 <- concepts[3]
+    skip_count <- data %>% 
+      filter(word1 == concept1 | word2 == concept1 | word3 == concept1 | word4 == concept1)
+    skip_count <- skip_count %>% 
+      filter(word1 == concept2 | word2 == concept2 | word3 == concept2 | word4 == concept2)
+    skip_count <- skip_count %>% 
+      filter(word1 == concept3 | word2 == concept3 | word3 == concept3 | word4 == concept3)
+    skip_count$word1 <- str_remove_all(skip_count$word1, concept1)
+    skip_count$word2 <- str_remove_all(skip_count$word2, concept1)
+    skip_count$word3 <- str_remove_all(skip_count$word3, concept1)
+    skip_count$word4 <- str_remove_all(skip_count$word4, concept1)
+    skip_count$word1 <- str_remove_all(skip_count$word1, concept2)
+    skip_count$word2 <- str_remove_all(skip_count$word2, concept2)
+    skip_count$word3 <- str_remove_all(skip_count$word3, concept2)
+    skip_count$word4 <- str_remove_all(skip_count$word4, concept2)
+    skip_count$word1 <- str_remove_all(skip_count$word1, concept3)
+    skip_count$word2 <- str_remove_all(skip_count$word2, concept3)
+    skip_count$word3 <- str_remove_all(skip_count$word3, concept3)
+    skip_count$word4 <- str_remove_all(skip_count$word4, concept3)
+    skip_count$concepto <- paste(skip_count$word1, skip_count$word2, skip_count$word3, skip_count$word4, sep = " ")
+    skip_count <- select(skip_count, concepto, weight)
+    skip_count$concepto <- sub("^\\s+", "", skip_count$concepto)
+    skip_count$concepto <- sub("\\s+$", "", skip_count$concepto)
+    skip_count <- aggregate(weight ~ concepto, skip_count, sum)
+    skip_count <- skip_count[order(skip_count$weight, decreasing = TRUE), ]
+  }
+  skip_count <- skip_count[1:n_wanted,1:2]
+  return(skip_count)
+}
+plotred_bigram <- function(data, V_S, E_W, NOMBRE){
+  data <- data[1:50,1:3]
+  threshold <- data[50,3]-1
+  NOMBRE <- paste("Red de conteo de bigramas: ", NOMBRE, sep = "")
+  network <-  data %>%
+    filter(weight > threshold) %>%
+    mutate(weight = ScaleWeight(x = weight, lambda = 2E3)) %>% 
+    graph_from_data_frame(directed = FALSE)
+  V(network)$degree <- strength(graph = network)
+  E(network)$width <- E(network)$weight/max(E(network)$weight)
+  plot(
+    network, 
+    vertex.color = 'lightblue',
+    # Scale node size by degree.
+    vertex.size = V_S*V(network)$degree, #tamaño del nodo
+    vertex.label.color = 'black', 
+    vertex.label.cex = 0.7, 
+    vertex.label.dist = 1,
+    edge.color = 'gray', 
+    # Set edge width proportional to the weight relative value.
+    edge.width = E_W*E(network)$width , #tamaño del vector
+    main = NOMBRE, 
+    sub = glue('Umbral de peso: {threshold}'), 
+    alpha = 50,
+    
+  )
+}
+plotbar_bigram <- function(data, concepto, name){
+  con <- toupper(concepto)
+  NOMBRE <- paste(name,": Conceptos asociados a ", con, sep = "")
+  ggplot(data, aes(x = weight, y = reorder(concepto, weight))) +
+    geom_bar(stat = "identity") +
+    labs(title = NOMBRE,
+         x = "Cantidad de asociaciones",
+         y = "Concepto")
+}
+plotsave_bigram <- function(name, graph){
+  ggsave(name, plot = graph, width = 16, height = 8, units = "cm")
+}
+f_mix_b1 <- function(DATA, CONCEPTO, NCON, name){
+  piloto <- f_bic_con(DATA, CONCEPTO, NCON)
+  plotbar_bigram(piloto, CONCEPTO, name)
+}
+f_mix_b2 <- function(DATA, CONCEPTO, NCON, TE){
+  nombre <- TE
+  piloto <- f_bic_con(DATA, CONCEPTO, NCON)
+  graph <- plotbar_bigram(piloto, CONCEPTO, nombre)
+  name <- paste("Bi_con_", TE, "_", sep = "")
+  name <- paste(name, CONCEPTO, sep = "")
+  name <- paste(name, ".png", sep = "")
+  plotsave_bigram(name, graph)
+}
+f_mix_t1 <- function(DATA, CONCEPTO, NCON, name){
+  piloto <- f_tric_con(DATA, CONCEPTO, NCON)
+  plotbar_bigram(piloto, CONCEPTO, name)
+}
+f_mix_t2 <- function(DATA, CONCEPTO, NCON, TE){
+  nombre <- TE
+  piloto <- f_tric_con(DATA, CONCEPTO, NCON)
+  graph <- plotbar_bigram(piloto, CONCEPTO, nombre)
+  name <- paste("Tri_con_", TE, "_", CONCEPTO, ".png", sep = "")
+  plotsave_bigram(name, graph)
+}
+f_mix_Sf1 <- function(DATA, CONCEPTO, NCON, name){
+  piloto <- f_Sfour_con(DATA, CONCEPTO, NCON)
+  plotbar_bigram(piloto, CONCEPTO, name)
+}
+f_mix_Sf2 <- function(DATA, CONCEPTO, NCON, name){
+  piloto <- f_Sfour_con(DATA, CONCEPTO, NCON)
+  graph <- plotbar_bigram(piloto, CONCEPTO, name)
+  nombre <- paste("SkipGram(4)_", name, "_", CONCEPTO, ".png", sep = "")
+  plotsave_bigram(nombre, graph)
+}
+
+plotred_bigram_eigenv <- function(data, V_S, E_W, NOMBRE){
+  data <- data[order(-data$eigenvector), ]
+  data <- data[1:50,1:5]
+  threshold <- data[50,3]-1
+  NOMBRE <- paste("Red de conteo de bigramas: ", NOMBRE, sep = "")
+  network <-  data %>%
+    filter(weight > threshold) %>%
+    mutate(weight = ScaleWeight(x = weight, lambda = 2E3)) %>% 
+    graph_from_data_frame(directed = FALSE)
+  V(network)$eigenvector <- strength(graph = network)
+  E(network)$width <- E(network)$weight/max(E(network)$weight)
+  plot(
+    network, 
+    vertex.color = 'lightblue',
+    # Scale node size by degree.
+    vertex.size = V_S*V(network)$degree, #tamaño del nodo
+    vertex.label.color = 'black', 
+    vertex.label.cex = 0.7, 
+    vertex.label.dist = 1,
+    edge.color = 'gray', 
+    # Set edge width proportional to the weight relative value.
+    edge.width = E_W*E(network)$width , #tamaño del vector
+    main = NOMBRE, 
+    sub = glue('Umbral de peso: {threshold}'), 
+    alpha = 50,
+    
+  )
+}
+
+cal_sub_ec <- function(bi_data_frame) {
+  # Crear el grafo a partir del dataframe
+  g <- graph_from_data_frame(bi_data_frame, directed = FALSE)
+
+  # Asignar pesos a las aristas del grafo
+  E(g)$weight <- bi_data_frame$weight
+
+  # Calcular la centralidad de eigenvector para el grafo completo
+  ec <- eigen_centrality(g, weights = E(g)$weight)
+
+  # Crear un dataframe con los nombres de los nodos y sus valores de eigenvector
+  nodes <- data.frame(name = V(g)$name, eigenvector = ec$vector)
+
+  # Seleccionar los 50 nodos con mayor centralidad de eigenvector
+  top_50_nodes <- head(nodes[order(-nodes$eigenvector), ], 50)
+
+  # Crear un subgrafo inducido por los 50 nodos principales
+  sub_g <- induced_subgraph(g, V(g)[name %in% top_50_nodes$name])
+
+  # Calcular la centralidad de eigenvector para el subgrafo
+  sub_ec <- eigen_centrality(sub_g, weights = E(sub_g)$weight)
+
+  return(sub_ec)
+}
+cal_sub_g <- function(bi_data_frame) {
+  # Crear el grafo a partir del dataframe
+  g <- graph_from_data_frame(bi_data_frame, directed = FALSE)
+
+  # Asignar pesos a las aristas del grafo
+  E(g)$weight <- bi_data_frame$weight
+
+  # Calcular la centralidad de eigenvector para el grafo completo
+  ec <- eigen_centrality(g, weights = E(g)$weight)
+
+  # Crear un dataframe con los nombres de los nodos y sus valores de eigenvector
+  nodes <- data.frame(name = V(g)$name, eigenvector = ec$vector)
+
+  # Seleccionar los 50 nodos con mayor centralidad de eigenvector
+  top_50_nodes <- head(nodes[order(-nodes$eigenvector), ], 50)
+
+  # Crear un subgrafo inducido por los 50 nodos principales
+  sub_g <- induced_subgraph(g, V(g)[name %in% top_50_nodes$name])
+
+  return(sub_g)
+}
+
+```
+
+```{r medidas de centralidad, include=FALSE}
+
+proc_decision.sci <- procdata_5.4 %>%
+  filter(Macro_areas == "Administration and Decision Sciences")
+bi_desision.sci <- f_bi_count(proc_decision.sci, "clean_abs")
+
+proc_eng.tech <- procdata_5.4 %>%
+  filter(Macro_areas == "Engineering and Technology")
+bi_eng.tech <- f_bi_count(proc_eng.tech, "clean_abs")
+
+proc_health.sci <- procdata_5.4 %>%
+  filter(Macro_areas == "Health and Medical Sciences")
+bi_health.sci <- f_bi_count(proc_health.sci, "clean_abs")
+
+proc_multidisciplinario <- procdata_5.4 %>%
+  filter(Macro_areas == "Multidisciplinary")
+bi_multidisciplinario <- f_bi_count(proc_multidisciplinario, "clean_abs")
+
+proc_natural.sci <- procdata_5.4 %>%
+  filter(Macro_areas == "Natural and Physical Sciences")
+bi_natural.sci <- f_bi_count(proc_natural.sci, "clean_abs")
+
+proc_social.sci <- procdata_5.4 %>%
+  filter(Macro_areas == "Social Sciences and Humanities")
+bi_social.sci <- f_bi_count(proc_social.sci, "clean_abs")
+
+
+decision_g <- cal_sub_g(bi_desision.sci)
+decision_ec <- cal_sub_ec(bi_desision.sci)
+
+eng_g <- cal_sub_g(bi_eng.tech)
+eng_ec <- cal_sub_ec(bi_eng.tech)
+
+health_g <- cal_sub_g(bi_health.sci)
+health_ec <- cal_sub_ec(bi_health.sci)
+
+multi_g <- cal_sub_g(bi_multidisciplinario)
+multi_ec <- cal_sub_ec(bi_multidisciplinario)
+
+natural_g <- cal_sub_g(bi_natural.sci)
+natural_ec <- cal_sub_ec(bi_natural.sci)
+
+social_g <- cal_sub_g(bi_social.sci)
+social_ec <- cal_sub_ec(bi_social.sci)
+```
+
+# CENTRALIDAD DE VECTOR PROPIO
+
+```{r}
+
+plot(decision_g, vertex.size = decision_ec$vector * 50, vertex.label.cex = 0.7, 
+       main = "Administration and Decision Sciences: 50 Nodos Más Relevantes")
+
+plot(eng_g, vertex.size = eng_ec$vector * 50, vertex.label.cex = 0.7, 
+       main = "Engineering and Technology: 50 Nodos Más Relevantes")
+
+plot(health_g, vertex.size = health_ec$vector * 50, vertex.label.cex = 0.7, 
+       main = "Health and Medical Sciences: 50 Nodos Más Relevantes")
+
+plot(multi_g, vertex.size = multi_ec$vector * 50, vertex.label.cex = 0.7, 
+       main = "Multidisciplinary: 50 Nodos Más Relevantes")
+
+plot(natural_g, vertex.size = natural_ec$vector * 50, vertex.label.cex = 0.7, 
+       main = "Natural and Physical Sciences: 50 Nodos Más Relevantes")
+
+plot(social_g, vertex.size = social_ec$vector * 50, vertex.label.cex = 0.7, 
+       main = "Social Sciences and Humanities: 50 Nodos Más Relevantes")
+```
+
+```{r}
+
+
+ggplot(decision_ec, aes(x = reorder(concepto, eigenvector), y = eigenvector)) +
+  geom_bar(stat = "identity") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(x = "Concepto", y = "Eigenvector", title = "Top 50 Conceptos por Eigenvector")
+
+```
+
+```{r}
+corpus = VCorpus(VectorSource(procdata_5.4$clean_abs))
+#corpus = tm_map(corpus, content_transformer(tolower))
+corpus = tm_map(corpus, removePunctuation)
+corpus = tm_map(corpus, removeNumbers)
+#corpus = tm_map(corpus, removeWords, stopwords("spanish"))
+corpus = tm_map(corpus, stemDocument)
+
+dtm = DocumentTermMatrix(corpus)
+tfidf = weightTfIdf(dtm)
+tfidf_matrix = as.matrix(tfidf)
+tfidf_scaled = scale(tfidf_matrix)
+
+# Aplicar PCA
+pca_result = PCA(tfidf_scaled, graph = FALSE)
+pca_result
+```
+
+```{r intento PCA}
+#decision
+decision_corpus = VCorpus(VectorSource(proc_decision.sci$clean_abs))
+#corpus = tm_map(corpus, content_transformer(tolower))
+decision_corpus = tm_map(decision_corpus, removePunctuation)
+decision_corpus = tm_map(decision_corpus, removeNumbers)
+#corpus = tm_map(corpus, removeWords, stopwords("spanish"))
+decision_corpus = tm_map(decision_corpus, stemDocument)
+
+decision_dtm = DocumentTermMatrix(decision_corpus)
+decision_tfidf = weightTfIdf(decision_dtm)
+decision_tfidf = as.matrix(decision_tfidf)
+decision_tfidf = scale(decision_tfidf)
+
+# Aplicar PCA
+decision_pca = PCA(decision_tfidf, graph = FALSE)
+decision_pca
+
+#eng tech
+eng_corpus = VCorpus(VectorSource(proc_eng.tech$clean_abs))
+#corpus = tm_map(corpus, content_transformer(tolower))
+eng_corpus = tm_map(eng_corpus, removePunctuation)
+eng_corpus = tm_map(eng_corpus, removeNumbers)
+#corpus = tm_map(corpus, removeWords, stopwords("spanish"))
+eng_corpus = tm_map(eng_corpus, stemDocument)
+
+eng_dtm = DocumentTermMatrix(eng_corpus)
+eng_tfidf = weightTfIdf(eng_dtm)
+eng_tfidf = as.matrix(eng_tfidf)
+eng_tfidf = scale(eng_tfidf)
+
+# Aplicar PCA
+eng_pca = PCA(eng_tfidf, graph = FALSE)
+eng_pca
+
+#health
+health_corpus = VCorpus(VectorSource(proc_health.sci$clean_abs))
+#corpus = tm_map(corpus, content_transformer(tolower))
+health_corpus = tm_map(health_corpus, removePunctuation)
+health_corpus = tm_map(health_corpus, removeNumbers)
+#corpus = tm_map(corpus, removeWords, stopwords("spanish"))
+health_corpus = tm_map(health_corpus, stemDocument)
+
+health_dtm = DocumentTermMatrix(health_corpus)
+health_tfidf = weightTfIdf(health_dtm)
+health_tfidf = as.matrix(health_tfidf)
+health_tfidf = scale(health_tfidf)
+
+# Aplicar PCA
+health_pca = PCA(health_tfidf, graph = FALSE)
+health_pca
+
+#multi
+multi_corpus = VCorpus(VectorSource(proc_multidisciplinario$clean_abs))
+#corpus = tm_map(corpus, content_transformer(tolower))
+multi_corpus = tm_map(multi_corpus, removePunctuation)
+multi_corpus = tm_map(multi_corpus, removeNumbers)
+#corpus = tm_map(corpus, removeWords, stopwords("spanish"))
+multi_corpus = tm_map(multi_corpus, stemDocument)
+
+multi_dtm = DocumentTermMatrix(multi_corpus)
+multi_tfidf = weightTfIdf(multi_dtm)
+multi_tfidf = as.matrix(multi_tfidf)
+multi_tfidf = scale(multi_tfidf)
+
+# Aplicar PCA
+multi_pca = PCA(multi_tfidf, graph = FALSE)
+multi_pca
+
+#natural
+natural_corpus = VCorpus(VectorSource(proc_natural.sci$clean_abs))
+#corpus = tm_map(corpus, content_transformer(tolower))
+natural_corpus = tm_map(natural_corpus, removePunctuation)
+natural_corpus = tm_map(natural_corpus, removeNumbers)
+#corpus = tm_map(corpus, removeWords, stopwords("spanish"))
+natural_corpus = tm_map(natural_corpus, stemDocument)
+
+natural_dtm = DocumentTermMatrix(natural_corpus)
+natural_tfidf = weightTfIdf(natural_dtm)
+natural_tfidf = as.matrix(natural_tfidf)
+natural_tfidf = scale(natural_tfidf)
+
+# Aplicar PCA
+natural_pca = PCA(natural_tfidf, graph = FALSE)
+natural_pca
+
+#social
+social_corpus = VCorpus(VectorSource(proc_social.sci$clean_abs))
+#corpus = tm_map(corpus, content_transformer(tolower))
+social_corpus = tm_map(social_corpus, removePunctuation)
+social_corpus = tm_map(social_corpus, removeNumbers)
+#corpus = tm_map(corpus, removeWords, stopwords("spanish"))
+social_corpus = tm_map(social_corpus, stemDocument)
+
+social_dtm = DocumentTermMatrix(social_corpus)
+social_tfidf = weightTfIdf(social_dtm)
+social_tfidf = as.matrix(social_tfidf)
+social_tfidf = scale(social_tfidf)
+
+# Aplicar PCA
+social_pca = PCA(social_tfidf, graph = TRUE)
+print(social_pca)
+```
+
