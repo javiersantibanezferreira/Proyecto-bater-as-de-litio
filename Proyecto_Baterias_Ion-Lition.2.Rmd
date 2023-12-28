@@ -25,6 +25,8 @@ opts_chunk$set(warning=FALSE,
 
 ```
 
+# hola
+
 ```{r carga de paquetes}
 rm(list=ls())       # borrar todos los objetos en el espacio de trabajo
 options(scipen=999) # valores sin notaci??n cient??fica
